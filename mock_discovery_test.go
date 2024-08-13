@@ -79,14 +79,16 @@ func (_m *MockDiscovery) JoinNodes(nodes ...string) error {
 }
 
 // KeyManager provides a mock function with given fields:
-func (_m *MockDiscovery) KeyManager() serf.KeyManager {
+func (_m *MockDiscovery) KeyManager() *serf.KeyManager {
 	ret := _m.Called()
 
-	var r0 serf.KeyManager
-	if rf, ok := ret.Get(0).(func() serf.KeyManager); ok {
+	var r0 *serf.KeyManager
+	if rf, ok := ret.Get(0).(func() *serf.KeyManager); ok {
 		r0 = rf()
 	} else {
-		r0 = ret.Get(0).(serf.KeyManager)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*serf.KeyManager)
+		}
 	}
 
 	return r0

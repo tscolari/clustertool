@@ -35,7 +35,7 @@ type addressable interface {
 type Discovery interface {
 	ConnectedNodes() []serf.Member
 	JoinNodes(nodes ...string) error
-	KeyManager() serf.KeyManager
+	KeyManager() *serf.KeyManager
 
 	SetTags(map[string]string) error
 	Tags() map[string]string
