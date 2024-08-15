@@ -14,6 +14,18 @@ const (
 	serfEventBuffer = 1024
 )
 
+// hcSerf is an interface that exposes the methods used by discovery
+// from serf.Serf.
+type HashicorpSerf interface {
+	KeyManager() *serf.KeyManager
+	Members() []serf.Member
+	Query(name string, payload []byte, params *serf.QueryParam) (*serf.QueryResponse, error)
+	SetTags(tags map[string]string) error
+	Leave() error
+	Shutdown() error
+	Join(addresses []string, ignoreOld bool) (int, error)
+}
+
 func NewDiscovery(ctx context.Context, logger *slog.Logger, name string, config *serf.Config) (*discovery, error) {
 	d := discovery{
 		name:          name,
@@ -26,12 +38,18 @@ func NewDiscovery(ctx context.Context, logger *slog.Logger, name string, config 
 		doneChan:      make(chan struct{}),
 	}
 
-	serf, err := d.init(ctx, config, d.events)
+	config.NodeName = d.name
+	config.MemberlistConfig.Name = d.name
+	config.EventCh = d.events
+
+	config.Init()
+	serf, err := serf.Create(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Serf: %w", err)
 	}
 
 	d.serf = serf
+	go d.serfEventHandler(ctx)
 
 	return &d, nil
 }
@@ -42,7 +60,7 @@ type discovery struct {
 	name    string
 	address string
 	logger  *slog.Logger
-	serf    *serf.Serf
+	serf    HashicorpSerf
 	tags    map[string]string
 
 	events chan serf.Event
@@ -78,6 +96,8 @@ func (d *discovery) ConnectedNodes() []serf.Member {
 }
 
 func (d *discovery) Tags() map[string]string {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
 	return d.tags
 }
 
@@ -105,12 +125,29 @@ func (d *discovery) SendEvent(name string, payload []byte, params *serf.QueryPar
 }
 
 func (d *discovery) SetTags(tags map[string]string) error {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
 	err := d.serf.SetTags(tags)
 	if err != nil {
 		d.logger.Error("failed to set tags", "error", err)
+		return err
 	}
 
-	return err
+	d.tags = tags
+
+	return nil
+}
+
+func (d *discovery) JoinNodes(addresses ...string) error {
+	joinedCount, err := d.serf.Join(addresses, true)
+	if err != nil {
+		d.logger.Error("failed to join nodes", "error", err)
+		return err
+	}
+
+	d.logger.Info("joined nodes", "nodes_count", joinedCount)
+	return nil
 }
 
 func (d *discovery) Stop() error {
@@ -134,32 +171,8 @@ func (d *discovery) Stop() error {
 	return nil
 }
 
-func (d *discovery) JoinNodes(addresses ...string) error {
-	joinedCount, err := d.serf.Join(addresses, true)
-	if err != nil {
-		d.logger.Error("failed to join nodes", "error", err)
-		return err
-	}
-
-	d.logger.Info("joined nodes", "nodes_count", joinedCount)
-	return nil
-}
-
 func (d *discovery) Done() <-chan struct{} {
 	return d.doneChan
-}
-
-func (d *discovery) init(ctx context.Context, config *serf.Config, ch chan serf.Event) (*serf.Serf, error) {
-	config.Init()
-
-	config.NodeName = d.name
-	config.MemberlistConfig.Name = d.name
-	config.EventCh = ch
-
-	go d.serfEventHandler(ctx)
-
-	serf, err := serf.Create(config)
-	return serf, err
 }
 
 func (d *discovery) serfEventHandler(ctx context.Context) {

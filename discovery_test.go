@@ -1,195 +1,351 @@
-package clustertool_test
+package clustertool
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
-	"log"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/serf/serf"
+	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	. "github.com/tscolari/clustertool"
 )
 
-func TestDiscovery(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func TestDiscovery_Name(t *testing.T) {
+	discovery, _ := testDiscovery(t, "node-1")
+	require.Equal(t, "node-1", discovery.Name())
+}
 
-	logger := slog.Default()
+func TestDiscovery_Address(t *testing.T) {
+	discovery, _ := testDiscovery(t, "node-1")
+	// serf's default configuration bind address
+	require.Equal(t, "0.0.0.0:7946", discovery.Address())
+}
 
-	ctx1, cancel1 := context.WithCancel(ctx)
-	defer cancel1()
-	node1Config := testSerfConfig(8001)
-	node1, err := NewDiscovery(ctx1, logger.With("node", "1"), "1", node1Config)
+func TestDiscovery_ConnectedNodes(t *testing.T) {
+	discovery, serfMock := testDiscovery(t, "node-1")
+
+	members := []serf.Member{
+		{Name: "0", Status: serf.StatusAlive},
+		{Name: "1", Status: serf.StatusLeft},
+		{Name: "2", Status: serf.StatusNone},
+		{Name: "3", Status: serf.StatusFailed},
+		{Name: "4", Status: serf.StatusLeaving},
+		{Name: "5", Status: serf.StatusAlive},
+	}
+
+	serfMock.
+		On("Members").
+		Once().
+		Return(members)
+
+	expectedMembers := []serf.Member{
+		members[0], members[3], members[4], members[5],
+	}
+
+	require.Equal(t, expectedMembers, discovery.ConnectedNodes())
+}
+
+func TestDiscovery_Tags(t *testing.T) {
+	discovery, _ := testDiscovery(t, "node-1")
+
+	tags := discovery.Tags()
+	require.Equal(t, map[string]string{
+		"tag1": "value1", "tag2": "value2",
+	}, tags)
+}
+
+func TestDiscovery_SubscribeToEvent(t *testing.T) {
+	discovery, _ := testDiscovery(t, "node-1")
+
+	require.Empty(t, discovery.subscriptions)
+
+	action1Exec := atomic.Bool{}
+	action1 := func(_ serf.Event) { action1Exec.Store(true) }
+	action2Exec := atomic.Bool{}
+	action2 := func(_ serf.Event) { action2Exec.Store(true) }
+	action3Exec := atomic.Bool{}
+	action3 := func(_ serf.Event) { action3Exec.Store(true) }
+
+	discovery.SubscribeToEvent(serf.EventQuery, action1)
+	discovery.SubscribeToEvent(serf.EventUser, action2)
+	discovery.SubscribeToEvent(serf.EventQuery, action3)
+
+	require.Len(t, discovery.subscriptions[serf.EventQuery], 2)
+	require.Len(t, discovery.subscriptions[serf.EventUser], 1)
+
+	require.False(t, action1Exec.Load())
+	require.False(t, action2Exec.Load())
+	require.False(t, action3Exec.Load())
+
+	discovery.events <- &serf.Query{}
+
+	require.Eventually(t, func() bool {
+		return action1Exec.Load() && action3Exec.Load()
+	}, 10*time.Millisecond, 10*time.Microsecond)
+
+	require.False(t, action2Exec.Load())
+
+	discovery.events <- &serf.UserEvent{}
+
+	require.Eventually(t, func() bool {
+		return action2Exec.Load()
+	}, 10*time.Millisecond, 10*time.Microsecond)
+}
+
+func TestDiscovery_SendEvent(t *testing.T) {
+	discovery, serfMock := testDiscovery(t, "node-1")
+
+	queryName := "my-query"
+	queryPayload := []byte("payload")
+	queryParam := &serf.QueryParam{}
+
+	queryResponse := &serf.QueryResponse{}
+
+	serfMock.
+		On("Query", queryName, queryPayload, queryParam).
+		Once().
+		Return(queryResponse, nil)
+
+	resp, err := discovery.SendEvent(queryName, queryPayload, queryParam)
+	require.NoError(t, err)
+	require.Equal(t, queryResponse, resp)
+
+	t.Run("when serf returns an error", func(t *testing.T) {
+		serfMock.
+			On("Query", queryName, queryPayload, queryParam).
+			Once().
+			Return(nil, errors.New("failed"))
+
+		resp, err := discovery.SendEvent(queryName, queryPayload, queryParam)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed")
+		require.Nil(t, resp)
+	})
+}
+
+func TestDiscovery_SetTags(t *testing.T) {
+	discovery, serfMock := testDiscovery(t, "node-1")
+
+	newTags := map[string]string{"tag1": "override"}
+
+	serfMock.
+		On("SetTags", newTags).
+		Once().
+		Return(nil)
+
+	err := discovery.SetTags(newTags)
 	require.NoError(t, err)
 
-	ctx2, cancel2 := context.WithCancel(ctx)
-	defer cancel2()
-	node2Config := testSerfConfig(8002)
-	node2, err := NewDiscovery(ctx2, logger.With("node", "2"), "2", node2Config)
+	require.Equal(t, newTags, discovery.tags)
+
+	t.Run("when serf fails to set tags", func(t *testing.T) {
+		newerTags := map[string]string{"tag1": "override again", "tag2": "value"}
+
+		serfMock.
+			On("SetTags", newerTags).
+			Once().
+			Return(errors.New("failed badly"))
+
+		err := discovery.SetTags(newerTags)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed badly")
+
+		require.NotEqual(t, newerTags, discovery.tags)
+		require.Equal(t, newTags, discovery.tags)
+	})
+}
+
+func TestDiscovery_JoinNodes(t *testing.T) {
+	discovery, serfMock := testDiscovery(t, "node-1")
+
+	serfMock.
+		On("Join", []string{"0.0.0.1:10", "0.0.0.2:10"}, true).
+		Once().
+		Return(2, nil)
+
+	err := discovery.JoinNodes("0.0.0.1:10", "0.0.0.2:10")
 	require.NoError(t, err)
 
-	require.NoError(t, node2.JoinNodes("127.0.0.1:8001"))
+	t.Run("when serf returns an error", func(t *testing.T) {
+		serfMock.
+			On("Join", []string{"0.0.0.3:10", "0.0.0.4:10"}, true).
+			Once().
+			Return(0, errors.New("failed badly"))
 
-	require.Eventually(t, func() bool {
-		return len(node1.ConnectedNodes()) == 2
-	}, time.Second, time.Millisecond)
+		err := discovery.JoinNodes("0.0.0.3:10", "0.0.0.4:10")
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed badly")
+	})
+}
 
-	require.Eventually(t, func() bool {
-		return len(node2.ConnectedNodes()) == 2
-	}, time.Second, time.Millisecond)
+func TestDiscovery_Stop(t *testing.T) {
+	discovery, serfMock := testDiscovery(t, "node-1")
 
-	ctx3, cancel3 := context.WithCancel(ctx)
-	defer cancel3()
-	node3Config := testSerfConfig(8003)
-	node3, err := NewDiscovery(ctx3, logger.With("node", "3"), "3", node3Config)
-	require.NoError(t, err)
+	serfMock.
+		On("Leave").
+		Once().
+		Return(nil)
 
-	require.NoError(t, node3.JoinNodes("127.0.0.1:8002"))
+	serfMock.
+		On("Shutdown").
+		Once().
+		Return(nil)
 
-	require.Eventually(t, func() bool {
-		return len(node3.ConnectedNodes()) == 3
-	}, time.Second, time.Millisecond)
+	require.NoError(t, discovery.Stop())
+	select {
+	case <-discovery.Done():
+	case <-time.After(time.Millisecond):
+		require.Fail(t, "Done() should return immediately")
+	}
 
-	require.Eventually(t, func() bool {
-		return len(node2.ConnectedNodes()) == 3
-	}, time.Second, time.Millisecond)
+	t.Run("it should wait if another stop is in progress", func(t *testing.T) {
+		discovery, serfMock := testDiscovery(t, "node-1")
 
-	require.Eventually(t, func() bool {
-		return len(node1.ConnectedNodes()) == 3
-	}, time.Second, time.Millisecond)
+		wg := new(sync.WaitGroup)
+		wg.Add(1)
 
-	t.Run("event subscription and submission", func(t *testing.T) {
-		eventReceivedCount := atomic.Int32{}
+		// Leave will block, so that the first stop stays in progress
+		serfMock.
+			On("Leave").
+			Run(func(args mock.Arguments) {
+				wg.Wait()
+			}).
+			Once().
+			Return(nil)
 
-		eventReceivedFn := func(e serf.Event) {
-			query, ok := e.(*serf.Query)
-			require.True(t, ok)
-			require.Equal(t, "test-event", query.Name)
-			require.Equal(t, "payload", string(query.Payload))
-			counter := eventReceivedCount.Add(1)
-			require.NoError(t, query.Respond([]byte(fmt.Sprint(counter))))
+		serfMock.
+			On("Shutdown").
+			Once().
+			Return(nil)
 
-		}
-
-		node1.SubscribeToEvent(serf.EventQuery, eventReceivedFn)
-		node2.SubscribeToEvent(serf.EventQuery, eventReceivedFn)
-		resp, err := node3.SendEvent("test-event", []byte("payload"), &serf.QueryParam{
-			Timeout: 10 * time.Second,
-		})
-		require.NoError(t, err)
-
-		collectedResponses := make([]string, 0, 2)
-		func() {
-			for {
-				select {
-				case respPayload, ok := <-resp.ResponseCh():
-					if !ok {
-						return
-					}
-					collectedResponses = append(collectedResponses, string(respPayload.Payload))
-				case <-time.After(time.Until(resp.Deadline())):
-					require.Fail(t, "response channel timed out")
-					return
-				}
-			}
+		firstStopReturned := make(chan bool)
+		go func() {
+			require.NoError(t, discovery.Stop())
+			firstStopReturned <- true
 		}()
 
-		require.ElementsMatch(t, []string{"1", "2"}, collectedResponses)
-		require.EqualValues(t, 2, eventReceivedCount.Load())
+		select {
+		case <-firstStopReturned:
+			require.Fail(t, "first stop should not have returned")
+		case <-time.After(10 * time.Millisecond):
+		}
+
+		secondStopReturned := make(chan bool)
+		go func() {
+			require.NoError(t, discovery.Stop())
+			secondStopReturned <- true
+		}()
+
+		select {
+		case <-secondStopReturned:
+			require.Fail(t, "second stop should not have returned")
+		case <-time.After(10 * time.Millisecond):
+		}
+
+		// Done() should also be blocking
+		select {
+		case <-discovery.Done():
+			require.Fail(t, "Done channel should not have closed")
+		case <-time.After(10 * time.Millisecond):
+		}
+
+		wg.Done()
+
+		require.True(t, <-firstStopReturned)
+		require.True(t, <-secondStopReturned)
+
+		select {
+		case <-discovery.Done():
+		case <-time.After(10 * time.Millisecond):
+			require.Fail(t, "Done channel should have closed but timed out")
+		}
 	})
 
-	cancel2()
+	t.Run("when serf's Leave fails", func(t *testing.T) {
+		discovery, serfMock := testDiscovery(t, "node-1")
 
-	require.Eventually(t, func() bool {
-		return len(node3.ConnectedNodes()) == 2
-	}, time.Second, time.Millisecond)
+		serfMock.
+			On("Leave").
+			Once().
+			Return(errors.New("failed"))
 
-	require.Eventually(t, func() bool {
-		return len(node1.ConnectedNodes()) == 2
-	}, time.Second, time.Millisecond)
+		serfMock.
+			On("Shutdown").
+			Once().
+			Return(nil)
 
-	t.Cleanup(func() {
-		require.NoError(t, node1.Stop())
-		require.NoError(t, node2.Stop())
-		require.NoError(t, node3.Stop())
+		require.NoError(t, discovery.Stop())
+		select {
+		case <-discovery.Done():
+		case <-time.After(time.Millisecond):
+			require.Fail(t, "Done() should return immediately")
+		}
+	})
+
+	t.Run("when serf's shutdown fails", func(t *testing.T) {
+		discovery, serfMock := testDiscovery(t, "node-1")
+
+		serfMock.
+			On("Leave").
+			Once().
+			Return(nil)
+
+		serfMock.
+			On("Shutdown").
+			Once().
+			Return(errors.New("boom"))
+
+		err := discovery.Stop()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "boom")
+
+		// It should still be considered as Done.
+		select {
+		case <-discovery.Done():
+		case <-time.After(time.Millisecond):
+			require.Fail(t, "Done() should return immediately")
+		}
 	})
 }
 
-func TestDiscovery_EventSubscription(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func TestDiscovery_KeyManager(t *testing.T) {
+	discovery, serfMock := testDiscovery(t, "node-1")
 
-	logger := slog.Default()
+	keyManager := new(serf.KeyManager)
 
-	ctx1, cancel1 := context.WithCancel(ctx)
-	defer cancel1()
-	node1Config := testSerfConfig(8001)
-	node1, err := NewDiscovery(ctx1, logger.With("node", "1"), "1", node1Config)
-	require.NoError(t, err)
+	serfMock.
+		On("KeyManager").
+		Once().
+		Return(keyManager)
 
-	ctx2, cancel2 := context.WithCancel(ctx)
-	defer cancel2()
-	node2Config := testSerfConfig(8002)
-	node2, err := NewDiscovery(ctx2, logger.With("node", "2"), "2", node2Config)
-	require.NoError(t, err)
-
-	memberJoinedEvent := atomic.Bool{}
-	node1.SubscribeToEvent(serf.EventMemberJoin, func(e serf.Event) {
-		memberJoinedEvent.Swap(true)
-	})
-
-	require.NoError(t, node2.JoinNodes("127.0.0.1:8001"))
-
-	require.Eventually(t, func() bool {
-		return memberJoinedEvent.Load()
-	}, time.Second, 100*time.Millisecond)
-
-	memberLeftEvent := atomic.Bool{}
-	node2.SubscribeToEvent(serf.EventMemberLeave, func(e serf.Event) {
-		memberLeftEvent.Swap(true)
-	})
-
-	cancel1()
-
-	require.Eventually(t, func() bool {
-		return memberLeftEvent.Load()
-	}, time.Second, 100*time.Millisecond)
-
-	t.Cleanup(func() {
-		require.NoError(t, node1.Stop())
-		require.NoError(t, node2.Stop())
-	})
+	require.Equal(t, keyManager, discovery.KeyManager())
 }
 
-func TestDiscovery_NodeDoesntExist(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func testDiscovery(t *testing.T, nodeName string) (*discovery, *MockHashicorpSerf) {
+	serfConfig := serf.DefaultConfig()
+	serfConfig.Tags = map[string]string{
+		"tag1": "value1",
+		"tag2": "value2",
+	}
+	serfConfig.LogOutput = io.Discard
+	serfConfig.MemberlistConfig.LogOutput = io.Discard
 
-	logger := slog.Default()
+	discovery, err := NewDiscovery(
+		context.Background(),
+		slog.Default(),
+		nodeName,
+		serfConfig,
+	)
 
-	ctx1 := context.WithoutCancel(ctx)
-	node1Config := testSerfConfig(8001)
-	node1, err := NewDiscovery(ctx1, logger.With("node", "1"), "1", node1Config)
 	require.NoError(t, err)
+	discovery.serf.Shutdown()
+	serfMock := NewMockHashicorpSerf(t)
+	discovery.serf = serfMock
 
-	require.Error(t, node1.JoinNodes("127.0.0.1:10009", "127.0.0.1:10010"))
-
-	t.Cleanup(func() {
-		require.NoError(t, node1.Stop())
-	})
-}
-
-func testSerfConfig(port int) *serf.Config {
-	config := serf.DefaultConfig()
-	config.Logger = log.New(io.Discard, "", 1)
-	config.MemberlistConfig.BindAddr = "127.0.0.1"
-	config.MemberlistConfig.BindPort = port
-	config.MemberlistConfig.AdvertisePort = port
-	config.MemberlistConfig.Logger = log.New(io.Discard, "", 1)
-	return config
+	return discovery, serfMock
 }
