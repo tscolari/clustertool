@@ -377,18 +377,6 @@ func (c *consensus) watchInternalCtx() {
 
 var _ Consensus = &consensus{}
 
-type applyFuture interface {
-	raft.ApplyFuture
-}
-
-type indexFuture interface {
-	raft.IndexFuture
-}
-
-type configurationFuture interface {
-	raft.ConfigurationFuture
-}
-
 func TestAttachMockToConsensus(t *testing.T, c *consensus, raft HashicorpRaft) {
 	require.NoError(t, c.raft.Shutdown().Error())
 	c.raft = raft
