@@ -68,6 +68,7 @@ type discovery struct {
 	subscriptions map[serf.EventType][]func(serf.Event)
 	doneChan      chan struct{}
 	done          atomic.Bool
+	doneErr       atomic.Pointer[error]
 }
 
 func (d *discovery) Name() string {
@@ -153,6 +154,11 @@ func (d *discovery) JoinNodes(addresses ...string) error {
 func (d *discovery) Stop() error {
 	if d.done.Load() {
 		<-d.doneChan
+
+		if errPtr := d.doneErr.Load(); errPtr != nil {
+			return *errPtr
+		}
+
 		return nil
 	}
 
@@ -165,6 +171,7 @@ func (d *discovery) Stop() error {
 
 	if err := d.serf.Shutdown(); err != nil {
 		d.logger.Error("failed to shutdown Serf", "error", err)
+		d.doneErr.Store(&err)
 		return fmt.Errorf("failed to stop Serf: %w", err)
 	}
 

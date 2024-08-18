@@ -310,6 +310,16 @@ func TestDiscovery_Stop(t *testing.T) {
 		case <-time.After(time.Millisecond):
 			require.Fail(t, "Done() should return immediately")
 		}
+
+		t.Run("calling Stop again will produce the same error", func(t *testing.T) {
+			err := discovery.Stop()
+			require.Error(t, err)
+			require.ErrorContains(t, err, "boom")
+
+			err = discovery.Stop()
+			require.Error(t, err)
+			require.ErrorContains(t, err, "boom")
+		})
 	})
 }
 
