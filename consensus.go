@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
+	"github.com/stretchr/testify/require"
 )
 
 type ConsensusConfig struct {
@@ -385,4 +387,9 @@ type indexFuture interface {
 
 type configurationFuture interface {
 	raft.ConfigurationFuture
+}
+
+func TestAttachMockToConsensus(t *testing.T, c *consensus, raft HashicorpRaft) {
+	require.NoError(t, c.raft.Shutdown().Error())
+	c.raft = raft
 }

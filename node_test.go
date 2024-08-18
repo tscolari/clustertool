@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	. "github.com/tscolari/clustertool"
+	"github.com/tscolari/clustertool/mocks"
 )
 
 func TestNode_Initialization(t *testing.T) {
@@ -28,9 +29,9 @@ func TestNode_Initialization(t *testing.T) {
 	})
 
 	t.Run("when names don't match", func(t *testing.T) {
-		discovery := NewMockDiscovery(t)
+		discovery := mocks.NewDiscovery(t)
 		discovery.On("Name").Return("name-1")
-		consensus := NewMockConsensus(t)
+		consensus := mocks.NewConsensus(t)
 		consensus.On("Name").Return("name-2")
 
 		logger := slog.Default()
@@ -321,7 +322,7 @@ func TestNode_MemberEvents(t *testing.T) {
 
 	testCases := map[serf.EventType]struct {
 		event       serf.Event
-		expectation func(*testing.T, *MockConsensus, *MockDiscovery)
+		expectation func(*testing.T, *mocks.Consensus, *mocks.Discovery)
 	}{
 		serf.EventMemberJoin: {
 			event: serf.MemberEvent{
@@ -331,7 +332,7 @@ func TestNode_MemberEvents(t *testing.T) {
 					{Name: "node-2", Tags: map[string]string{"raft_addr": "0.0.0.0:2"}, Status: serf.StatusAlive},
 				},
 			},
-			expectation: func(t *testing.T, c *MockConsensus, d *MockDiscovery) {
+			expectation: func(t *testing.T, c *mocks.Consensus, d *mocks.Discovery) {
 				c.On("AddNode", "node-1", "0.0.0.0:1").Once().Return(nil)
 				c.On("AddNode", "node-2", "0.0.0.0:2").Once().Return(nil)
 			},
@@ -345,7 +346,7 @@ func TestNode_MemberEvents(t *testing.T) {
 					{Name: "node-2", Tags: map[string]string{"raft_addr": "0.0.0.0:2"}, Status: serf.StatusAlive},
 				},
 			},
-			expectation: func(t *testing.T, c *MockConsensus, d *MockDiscovery) {
+			expectation: func(t *testing.T, c *mocks.Consensus, d *mocks.Discovery) {
 				c.On("AddNode", "node-1", "0.0.0.0:1").Once().Return(nil)
 				c.On("AddNode", "node-2", "0.0.0.0:2").Once().Return(nil)
 			},
@@ -359,7 +360,7 @@ func TestNode_MemberEvents(t *testing.T) {
 					{Name: "node-2", Tags: map[string]string{"raft_addr": "0.0.0.0:2"}, Status: serf.StatusAlive},
 				},
 			},
-			expectation: func(t *testing.T, c *MockConsensus, d *MockDiscovery) {
+			expectation: func(t *testing.T, c *mocks.Consensus, d *mocks.Discovery) {
 				c.On("AddNode", "node-1", "0.0.0.0:1").Once().Return(nil)
 				c.On("AddNode", "node-2", "0.0.0.0:2").Once().Return(nil)
 			},
@@ -373,7 +374,7 @@ func TestNode_MemberEvents(t *testing.T) {
 					{Name: "node-2", Tags: map[string]string{"raft_addr": "0.0.0.0:2"}, Status: serf.StatusLeaving},
 				},
 			},
-			expectation: func(t *testing.T, c *MockConsensus, d *MockDiscovery) {
+			expectation: func(t *testing.T, c *mocks.Consensus, d *mocks.Discovery) {
 				c.On("DemoteNode", "node-1", "0.0.0.0:1").Once().Return(nil)
 				c.On("DemoteNode", "node-2", "0.0.0.0:2").Once().Return(nil)
 			},
@@ -387,7 +388,7 @@ func TestNode_MemberEvents(t *testing.T) {
 					{Name: "node-2", Tags: map[string]string{"raft_addr": "0.0.0.0:2"}, Status: serf.StatusLeft},
 				},
 			},
-			expectation: func(t *testing.T, c *MockConsensus, d *MockDiscovery) {
+			expectation: func(t *testing.T, c *mocks.Consensus, d *mocks.Discovery) {
 				c.On("RemoveNode", "node-1").Once().Return(nil)
 				c.On("RemoveNode", "node-2").Once().Return(nil)
 			},
@@ -419,15 +420,15 @@ func TestNode_MemberEvents(t *testing.T) {
 
 }
 
-func nodeTestMocks(t *testing.T, name string, skipSubscriptions ...serf.EventType) (*MockConsensus, *MockDiscovery, *MockFSM) {
-	consensus := NewMockConsensus(t)
+func nodeTestMocks(t *testing.T, name string, skipSubscriptions ...serf.EventType) (*mocks.Consensus, *mocks.Discovery, *mocks.FSM) {
+	consensus := mocks.NewConsensus(t)
 	consensus.On("Name").Return(name)
 	// This is called during test tear down.
 	consensus.On("Stop").Return(nil)
 	// This is called during initialization.
 	consensus.On("Address").Return("9.9.9.9:9")
 
-	discovery := NewMockDiscovery(t)
+	discovery := mocks.NewDiscovery(t)
 	discovery.On("Name").Return(name)
 	// This is called during test tear down.
 	discovery.On("Stop").Return(nil)
@@ -460,7 +461,7 @@ func nodeTestMocks(t *testing.T, name string, skipSubscriptions ...serf.EventTyp
 		discovery.On("SubscribeToEvent", eventType, mock.Anything)
 	}
 
-	fsm := NewMockFSM(t)
+	fsm := mocks.NewFSM(t)
 
 	return consensus, discovery, fsm
 }

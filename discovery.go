@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"testing"
 
 	"github.com/hashicorp/serf/serf"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -221,6 +223,12 @@ func (d *discovery) memberLeft(event serf.MemberEvent) {
 		d.logger.Info("removing member", "member_name", m.Name, "member_addr", m.Addr, "member_port", m.Port)
 
 	}
+}
+
+func TestAttachMockToDiscovery(t *testing.T, d *discovery, serf HashicorpSerf, eventsCh chan serf.Event) {
+	require.NoError(t, d.serf.Shutdown())
+	d.serf = serf
+	d.events = eventsCh
 }
 
 var _ Discovery = &discovery{}

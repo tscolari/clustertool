@@ -1,4 +1,4 @@
-package clustertool
+package clustertool_test
 
 import (
 	"context"
@@ -14,26 +14,28 @@ import (
 	"github.com/hashicorp/raft"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	. "github.com/tscolari/clustertool"
+	"github.com/tscolari/clustertool/mocks"
 )
 
 func TestConsensus_Name(t *testing.T) {
-	consensus, _ := testConsensus(t, "name-1")
+	consensus, _, _ := testConsensus(t, "name-1")
 	require.Equal(t, "name-1", consensus.Name())
 }
 
 func TestConsensus_Address(t *testing.T) {
-	consensus, _ := testConsensus(t, "name-1")
+	consensus, _, _ := testConsensus(t, "name-1")
 	// Address from default configuraiton
 	require.Equal(t, "127.0.0.1:9001", consensus.Address())
 }
 
 func TestConsensus_Apply(t *testing.T) {
-	consensus, raftMock := testConsensus(t, "name-1")
+	consensus, raftMock, _ := testConsensus(t, "name-1")
 
 	cmd := []byte("hello")
 	timeout := time.Second
 
-	future := NewMockapplyFuture(t)
+	future := mocks.NewApplyFuture(t)
 
 	raftMock.
 		On("Apply", cmd, timeout).
@@ -54,21 +56,21 @@ func TestConsensus_Apply(t *testing.T) {
 }
 
 func TestConsensus_IsLeader(t *testing.T) {
-	consensus, _ := testConsensus(t, "name-1")
+	consensus, _, notifyCh := testConsensus(t, "name-1")
 
-	consensus.notifyChannel <- false
+	notifyCh <- false
 	require.Eventually(t, func() bool {
 		return !consensus.IsLeader()
 	}, 150*time.Millisecond, 100*time.Microsecond)
 
-	consensus.notifyChannel <- true
+	notifyCh <- true
 	require.Eventually(t, func() bool {
 		return consensus.IsLeader()
 	}, 150*time.Millisecond, 100*time.Microsecond)
 }
 
 func TestConsensus_Leader(t *testing.T) {
-	consensus, raftMock := testConsensus(t, "name-1")
+	consensus, raftMock, _ := testConsensus(t, "name-1")
 
 	raftMock.
 		On("LeaderWithID").
@@ -81,9 +83,9 @@ func TestConsensus_Leader(t *testing.T) {
 }
 
 func TestConsensus_AddNode(t *testing.T) {
-	consensus, raftMock := testConsensus(t, "name-1")
+	consensus, raftMock, _ := testConsensus(t, "name-1")
 
-	future := NewMockindexFuture(t)
+	future := mocks.NewIndexFuture(t)
 
 	raftMock.
 		On("AddVoter", raft.ServerID("cool-node"), raft.ServerAddress("0.0.0.0:1"), uint64(0), time.Duration(0)).
@@ -102,9 +104,9 @@ func TestConsensus_AddNode(t *testing.T) {
 }
 
 func TestConsensus_DemoteNode(t *testing.T) {
-	consensus, raftMock := testConsensus(t, "name-1")
+	consensus, raftMock, _ := testConsensus(t, "name-1")
 
-	future := NewMockindexFuture(t)
+	future := mocks.NewIndexFuture(t)
 
 	raftMock.
 		On("AddNonvoter", raft.ServerID("cool-node"), raft.ServerAddress("0.0.0.0:1"), uint64(0), time.Duration(0)).
@@ -123,9 +125,9 @@ func TestConsensus_DemoteNode(t *testing.T) {
 }
 
 func TestConsensus_RemoveNode(t *testing.T) {
-	consensus, raftMock := testConsensus(t, "name-1")
+	consensus, raftMock, _ := testConsensus(t, "name-1")
 
-	future := NewMockindexFuture(t)
+	future := mocks.NewIndexFuture(t)
 
 	raftMock.
 		On("RemoveServer", raft.ServerID("cool-node"), uint64(0), time.Duration(0)).
@@ -144,9 +146,9 @@ func TestConsensus_RemoveNode(t *testing.T) {
 }
 
 func TestConsensus_Nodes(t *testing.T) {
-	consensus, raftMock := testConsensus(t, "name-1")
+	consensus, raftMock, _ := testConsensus(t, "name-1")
 
-	future := NewMockconfigurationFuture(t)
+	future := mocks.NewConfigurationFuture(t)
 
 	raftMock.
 		On("GetConfiguration").
@@ -180,14 +182,14 @@ func TestConsensus_Nodes(t *testing.T) {
 }
 
 func TestConsensus_Stop(t *testing.T) {
-	consensus, raftMock := testConsensus(t, "name-1")
-	consensus.notifyChannel <- false
+	consensus, raftMock, notifyCh := testConsensus(t, "name-1")
+	notifyCh <- false
 
 	require.Eventually(t, func() bool {
 		return !consensus.IsLeader()
 	}, 100*time.Millisecond, 10*time.Microsecond)
 
-	shutdownFuture := NewMockindexFuture(t)
+	shutdownFuture := mocks.NewIndexFuture(t)
 	raftMock.
 		On("Shutdown").
 		Once().
@@ -210,13 +212,13 @@ func TestConsensus_Stop(t *testing.T) {
 	}
 
 	t.Run("when stopped is called multiple times at once", func(t *testing.T) {
-		consensus, raftMock := testConsensus(t, "name-1")
-		consensus.notifyChannel <- false
+		consensus, raftMock, notifyCh := testConsensus(t, "name-1")
+		notifyCh <- false
 
 		wg := new(sync.WaitGroup)
 		wg.Add(1)
 
-		shutdownFuture := NewMockindexFuture(t)
+		shutdownFuture := mocks.NewIndexFuture(t)
 		raftMock.
 			On("Shutdown").
 			Run(func(args mock.Arguments) {
@@ -266,10 +268,10 @@ func TestConsensus_Stop(t *testing.T) {
 	})
 
 	t.Run("when raft's Shutdown fail", func(t *testing.T) {
-		consensus, raftMock := testConsensus(t, "name-1")
-		consensus.notifyChannel <- false
+		consensus, raftMock, notifyCh := testConsensus(t, "name-1")
+		notifyCh <- false
 
-		shutdownFuture := NewMockindexFuture(t)
+		shutdownFuture := mocks.NewIndexFuture(t)
 		raftMock.
 			On("Shutdown").
 			Once().
@@ -293,15 +295,15 @@ func TestConsensus_Stop(t *testing.T) {
 	})
 
 	t.Run("when the node is the leader", func(t *testing.T) {
-		consensus, raftMock := testConsensus(t, "name-1")
+		consensus, raftMock, notifyCh := testConsensus(t, "name-1")
 		// Ensure it's the leader.
-		consensus.notifyChannel <- true
+		notifyCh <- true
 
 		require.Eventually(t, func() bool {
 			return consensus.IsLeader()
 		}, 100*time.Millisecond, 10*time.Microsecond)
 
-		leadershipFuture := NewMockindexFuture(t)
+		leadershipFuture := mocks.NewIndexFuture(t)
 		raftMock.
 			On("LeadershipTransfer").
 			Once().
@@ -309,7 +311,7 @@ func TestConsensus_Stop(t *testing.T) {
 
 		leadershipFuture.On("Error").Once().Return(nil)
 
-		shutdownFuture := NewMockindexFuture(t)
+		shutdownFuture := mocks.NewIndexFuture(t)
 		raftMock.
 			On("Shutdown").
 			Once().
@@ -320,8 +322,8 @@ func TestConsensus_Stop(t *testing.T) {
 	})
 }
 
-func testConsensus(t *testing.T, name string) (*consensus, *MockHashicorpRaft) {
-	fsm := NewMockFSM(t)
+func testConsensus(t *testing.T, name string) (Consensus, *mocks.HashicorpRaft, chan<- bool) {
+	fsm := mocks.NewFSM(t)
 	config := DefaultConsensusConfig()
 	config.DataDir = path.Join(os.TempDir(), uuid.NewString())
 
@@ -334,9 +336,9 @@ func testConsensus(t *testing.T, name string) (*consensus, *MockHashicorpRaft) {
 	)
 
 	require.NoError(t, err)
-	require.NoError(t, consensus.raft.Shutdown().Error())
-	raft := NewMockHashicorpRaft(t)
-	consensus.raft = raft
 
-	return consensus, raft
+	raft := mocks.NewHashicorpRaft(t)
+	TestAttachMockToConsensus(t, consensus, raft)
+
+	return consensus, raft, config.Raft.NotifyCh
 }

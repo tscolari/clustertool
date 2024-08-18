@@ -12,6 +12,7 @@ import (
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	. "github.com/tscolari/clustertool"
+	"github.com/tscolari/clustertool/mocks"
 )
 
 func TestApp_Apply(t *testing.T) {
@@ -142,7 +143,7 @@ func TestApp_SendQuery(t *testing.T) {
 	payload := []byte("hello")
 	params := &serf.QueryParam{FilterNodes: []string{uuid.NewString()}}
 
-	eventResponse := NewMockEventResponse(t)
+	eventResponse := mocks.NewEventResponse(t)
 
 	node.
 		On("SendEvent", queryName, payload, params).
@@ -160,8 +161,8 @@ func TestApp_Node(t *testing.T) {
 	require.Equal(t, node, app.Node())
 }
 
-func newTestNode(t *testing.T) *MockNode {
-	node := NewMockNode(t)
+func newTestNode(t *testing.T) *mocks.Node {
+	node := mocks.NewNode(t)
 	node.On("SubscribeToEvent", "apply_redirect", mock.Anything).Once()
 	node.On("Name").Return("node-1")
 	return node
@@ -180,8 +181,8 @@ func newTestApp(t *testing.T, node Node, options ...AppOptions) App {
 	return app
 }
 
-func newTestEventResponse(t *testing.T, from string, payload string) *MockEventResponse {
-	eventResponse := NewMockEventResponse(t)
+func newTestEventResponse(t *testing.T, from string, payload string) *mocks.EventResponse {
+	eventResponse := mocks.NewEventResponse(t)
 	eventResponse.On("Close").Once()
 	responseCh := make(chan serf.NodeResponse, 10)
 

@@ -1,4 +1,4 @@
-package clustertool
+package clustertool_test
 
 import (
 	"context"
@@ -13,21 +13,23 @@ import (
 	"github.com/hashicorp/serf/serf"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	. "github.com/tscolari/clustertool"
+	"github.com/tscolari/clustertool/mocks"
 )
 
 func TestDiscovery_Name(t *testing.T) {
-	discovery, _ := testDiscovery(t, "node-1")
+	discovery, _, _ := testDiscovery(t, "node-1")
 	require.Equal(t, "node-1", discovery.Name())
 }
 
 func TestDiscovery_Address(t *testing.T) {
-	discovery, _ := testDiscovery(t, "node-1")
+	discovery, _, _ := testDiscovery(t, "node-1")
 	// serf's default configuration bind address
 	require.Equal(t, "0.0.0.0:7946", discovery.Address())
 }
 
 func TestDiscovery_ConnectedNodes(t *testing.T) {
-	discovery, serfMock := testDiscovery(t, "node-1")
+	discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 	members := []serf.Member{
 		{Name: "0", Status: serf.StatusAlive},
@@ -51,7 +53,7 @@ func TestDiscovery_ConnectedNodes(t *testing.T) {
 }
 
 func TestDiscovery_Tags(t *testing.T) {
-	discovery, _ := testDiscovery(t, "node-1")
+	discovery, _, _ := testDiscovery(t, "node-1")
 
 	tags := discovery.Tags()
 	require.Equal(t, map[string]string{
@@ -60,9 +62,7 @@ func TestDiscovery_Tags(t *testing.T) {
 }
 
 func TestDiscovery_SubscribeToEvent(t *testing.T) {
-	discovery, _ := testDiscovery(t, "node-1")
-
-	require.Empty(t, discovery.subscriptions)
+	discovery, _, eventsCh := testDiscovery(t, "node-1")
 
 	action1Exec := atomic.Bool{}
 	action1 := func(_ serf.Event) { action1Exec.Store(true) }
@@ -75,14 +75,11 @@ func TestDiscovery_SubscribeToEvent(t *testing.T) {
 	discovery.SubscribeToEvent(serf.EventUser, action2)
 	discovery.SubscribeToEvent(serf.EventQuery, action3)
 
-	require.Len(t, discovery.subscriptions[serf.EventQuery], 2)
-	require.Len(t, discovery.subscriptions[serf.EventUser], 1)
-
 	require.False(t, action1Exec.Load())
 	require.False(t, action2Exec.Load())
 	require.False(t, action3Exec.Load())
 
-	discovery.events <- &serf.Query{}
+	eventsCh <- &serf.Query{}
 
 	require.Eventually(t, func() bool {
 		return action1Exec.Load() && action3Exec.Load()
@@ -90,7 +87,7 @@ func TestDiscovery_SubscribeToEvent(t *testing.T) {
 
 	require.False(t, action2Exec.Load())
 
-	discovery.events <- &serf.UserEvent{}
+	eventsCh <- &serf.UserEvent{}
 
 	require.Eventually(t, func() bool {
 		return action2Exec.Load()
@@ -98,7 +95,7 @@ func TestDiscovery_SubscribeToEvent(t *testing.T) {
 }
 
 func TestDiscovery_SendEvent(t *testing.T) {
-	discovery, serfMock := testDiscovery(t, "node-1")
+	discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 	queryName := "my-query"
 	queryPayload := []byte("payload")
@@ -129,7 +126,7 @@ func TestDiscovery_SendEvent(t *testing.T) {
 }
 
 func TestDiscovery_SetTags(t *testing.T) {
-	discovery, serfMock := testDiscovery(t, "node-1")
+	discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 	newTags := map[string]string{"tag1": "override"}
 
@@ -141,7 +138,7 @@ func TestDiscovery_SetTags(t *testing.T) {
 	err := discovery.SetTags(newTags)
 	require.NoError(t, err)
 
-	require.Equal(t, newTags, discovery.tags)
+	require.Equal(t, newTags, discovery.Tags())
 
 	t.Run("when serf fails to set tags", func(t *testing.T) {
 		newerTags := map[string]string{"tag1": "override again", "tag2": "value"}
@@ -155,13 +152,13 @@ func TestDiscovery_SetTags(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorContains(t, err, "failed badly")
 
-		require.NotEqual(t, newerTags, discovery.tags)
-		require.Equal(t, newTags, discovery.tags)
+		require.NotEqual(t, newerTags, discovery.Tags())
+		require.Equal(t, newTags, discovery.Tags())
 	})
 }
 
 func TestDiscovery_JoinNodes(t *testing.T) {
-	discovery, serfMock := testDiscovery(t, "node-1")
+	discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 	serfMock.
 		On("Join", []string{"0.0.0.1:10", "0.0.0.2:10"}, true).
@@ -184,7 +181,7 @@ func TestDiscovery_JoinNodes(t *testing.T) {
 }
 
 func TestDiscovery_Stop(t *testing.T) {
-	discovery, serfMock := testDiscovery(t, "node-1")
+	discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 	serfMock.
 		On("Leave").
@@ -204,7 +201,7 @@ func TestDiscovery_Stop(t *testing.T) {
 	}
 
 	t.Run("it should wait if another stop is in progress", func(t *testing.T) {
-		discovery, serfMock := testDiscovery(t, "node-1")
+		discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 		wg := new(sync.WaitGroup)
 		wg.Add(1)
@@ -267,7 +264,7 @@ func TestDiscovery_Stop(t *testing.T) {
 	})
 
 	t.Run("when serf's Leave fails", func(t *testing.T) {
-		discovery, serfMock := testDiscovery(t, "node-1")
+		discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 		serfMock.
 			On("Leave").
@@ -288,7 +285,7 @@ func TestDiscovery_Stop(t *testing.T) {
 	})
 
 	t.Run("when serf's shutdown fails", func(t *testing.T) {
-		discovery, serfMock := testDiscovery(t, "node-1")
+		discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 		serfMock.
 			On("Leave").
@@ -324,7 +321,7 @@ func TestDiscovery_Stop(t *testing.T) {
 }
 
 func TestDiscovery_KeyManager(t *testing.T) {
-	discovery, serfMock := testDiscovery(t, "node-1")
+	discovery, serfMock, _ := testDiscovery(t, "node-1")
 
 	keyManager := new(serf.KeyManager)
 
@@ -336,7 +333,7 @@ func TestDiscovery_KeyManager(t *testing.T) {
 	require.Equal(t, keyManager, discovery.KeyManager())
 }
 
-func testDiscovery(t *testing.T, nodeName string) (*discovery, *MockHashicorpSerf) {
+func testDiscovery(t *testing.T, nodeName string) (Discovery, *mocks.HashicorpSerf, chan<- serf.Event) {
 	serfConfig := serf.DefaultConfig()
 	serfConfig.Tags = map[string]string{
 		"tag1": "value1",
@@ -353,9 +350,9 @@ func testDiscovery(t *testing.T, nodeName string) (*discovery, *MockHashicorpSer
 	)
 
 	require.NoError(t, err)
-	discovery.serf.Shutdown()
-	serfMock := NewMockHashicorpSerf(t)
-	discovery.serf = serfMock
+	serfMock := mocks.NewHashicorpSerf(t)
+	eventsCh := make(chan serf.Event, 10)
+	TestAttachMockToDiscovery(t, discovery, serfMock, eventsCh)
 
-	return discovery, serfMock
+	return discovery, serfMock, eventsCh
 }
