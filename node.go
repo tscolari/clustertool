@@ -62,12 +62,6 @@ type Consensus interface {
 	stoppable
 }
 
-// FSM defines the interface that the internal finite state machine must have.
-// It will be called to apply changes in the state, as well as snapshotting and restoring it.
-type FSM interface {
-	raft.FSM
-}
-
 // NodeInfo is a basic node information.
 type NodeInfo struct {
 	Name   string
@@ -130,7 +124,6 @@ func NewNode(
 	logger *slog.Logger,
 	discovery Discovery,
 	consensus Consensus,
-	fsm FSM,
 ) (*node, error) {
 
 	if discovery.Name() != consensus.Name() {

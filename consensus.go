@@ -2,6 +2,7 @@ package clustertool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -29,6 +30,22 @@ type ConsensusConfig struct {
 	Bootstrap bool
 }
 
+func (c ConsensusConfig) Validate() error {
+	if c.Addr == "" {
+		return errors.New("field Addr can't be empty")
+	}
+
+	if c.Raft == nil {
+		return errors.New("field Raft can't be nil")
+	}
+
+	if c.DataDir == "" {
+		return errors.New("field DataDir can't be empty")
+	}
+
+	return nil
+}
+
 func DefaultConsensusConfig() ConsensusConfig {
 	raftConfig := raft.DefaultConfig()
 	raftConfig.LogLevel = "WARN"
@@ -54,6 +71,12 @@ type HashicorpRaft interface {
 	Shutdown() raft.Future
 }
 
+// FSM defines the interface that the internal finite state machine must have.
+// It will be called to apply changes in the state, as well as snapshotting and restoring it.
+type FSM interface {
+	raft.FSM
+}
+
 func NewConsensus(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -61,6 +84,10 @@ func NewConsensus(
 	fsm raft.FSM,
 	config ConsensusConfig,
 ) (*consensus, error) {
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("consensus configuration is invalid: %v", err)
+	}
 
 	logger = logger.With("node_name", name)
 	c := consensus{

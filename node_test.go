@@ -16,12 +16,12 @@ import (
 )
 
 func TestNode_Initialization(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -36,20 +36,20 @@ func TestNode_Initialization(t *testing.T) {
 
 		logger := slog.Default()
 
-		_, err := NewNode(ctx, logger, discovery, consensus, fsm)
+		_, err := NewNode(ctx, logger, discovery, consensus)
 		require.Error(t, err)
 	})
 }
 
 func TestNode_Apply(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
 
 	consensus.On("IsLeader").Once().Return(true)
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		node.Stop()
@@ -88,12 +88,12 @@ func TestNode_Apply(t *testing.T) {
 }
 
 func TestNode_IsLeader(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		node.Stop()
@@ -108,12 +108,12 @@ func TestNode_IsLeader(t *testing.T) {
 }
 
 func TestNode_ConnectToNode(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		node.Stop()
@@ -139,12 +139,12 @@ func TestNode_ConnectToNode(t *testing.T) {
 }
 
 func TestNode_Cluster(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		node.Stop()
@@ -187,7 +187,7 @@ func TestNode_Cluster(t *testing.T) {
 }
 
 func TestNode_Tag(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
@@ -197,7 +197,7 @@ func TestNode_Tag(t *testing.T) {
 		Times(3).
 		Return(map[string]string{"tag1": "value1", "tag2": "value2"})
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		node.Stop()
@@ -217,12 +217,12 @@ func TestNode_Tag(t *testing.T) {
 }
 
 func TestNode_Done(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 
 	select {
@@ -242,18 +242,18 @@ func TestNode_Done(t *testing.T) {
 }
 
 func TestNode_Stop(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node")
+	consensus, discovery := nodeTestMocks(t, "test-node")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 	node.Stop()
 }
 
 func TestNode_Reconciliation(t *testing.T) {
-	consensus, discovery, fsm := nodeTestMocks(t, "test-node-1")
+	consensus, discovery := nodeTestMocks(t, "test-node-1")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := slog.Default()
@@ -286,7 +286,7 @@ func TestNode_Reconciliation(t *testing.T) {
 	consensus.On("AddNode", "node-4", "0.0.0.0:4").Return(nil)
 	consensus.On("RemoveNode", "node-5").Return(nil)
 
-	node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+	node, err := NewNode(ctx, logger, discovery, consensus)
 	require.NoError(t, err)
 
 	time.Sleep(40 * time.Millisecond)
@@ -294,7 +294,7 @@ func TestNode_Reconciliation(t *testing.T) {
 	node.Stop()
 
 	t.Run("when not a leader", func(t *testing.T) {
-		consensus, discovery, fsm := nodeTestMocks(t, "test-node-2")
+		consensus, discovery := nodeTestMocks(t, "test-node-2")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		logger := slog.Default()
@@ -307,7 +307,7 @@ func TestNode_Reconciliation(t *testing.T) {
 		defer consensus.AssertNotCalled(t, "DemoteNote", mock.Anything, mock.Anything)
 		defer consensus.AssertNotCalled(t, "RemoveNode", mock.Anything)
 
-		node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+		node, err := NewNode(ctx, logger, discovery, consensus)
 		require.NoError(t, err)
 
 		time.Sleep(40 * time.Millisecond)
@@ -397,7 +397,7 @@ func TestNode_MemberEvents(t *testing.T) {
 
 	for eventType, tc := range testCases {
 		t.Run(eventType.String(), func(t *testing.T) {
-			consensus, discovery, fsm := nodeTestMocks(t, "test-node-1", eventType)
+			consensus, discovery := nodeTestMocks(t, "test-node-1", eventType)
 
 			tc.expectation(t, consensus, discovery)
 
@@ -412,7 +412,7 @@ func TestNode_MemberEvents(t *testing.T) {
 
 			consensus.On("IsLeader").Return(true)
 
-			node, err := NewNode(ctx, logger, discovery, consensus, fsm)
+			node, err := NewNode(ctx, logger, discovery, consensus)
 			require.NoError(t, err)
 			t.Cleanup(func() { node.Stop() })
 		})
@@ -420,7 +420,7 @@ func TestNode_MemberEvents(t *testing.T) {
 
 }
 
-func nodeTestMocks(t *testing.T, name string, skipSubscriptions ...serf.EventType) (*mocks.Consensus, *mocks.Discovery, *mocks.FSM) {
+func nodeTestMocks(t *testing.T, name string, skipSubscriptions ...serf.EventType) (*mocks.Consensus, *mocks.Discovery) {
 	consensus := mocks.NewConsensus(t)
 	consensus.On("Name").Return(name)
 	// This is called during test tear down.
@@ -461,7 +461,5 @@ func nodeTestMocks(t *testing.T, name string, skipSubscriptions ...serf.EventTyp
 		discovery.On("SubscribeToEvent", eventType, mock.Anything)
 	}
 
-	fsm := mocks.NewFSM(t)
-
-	return consensus, discovery, fsm
+	return consensus, discovery
 }
