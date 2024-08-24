@@ -32,7 +32,7 @@ func NewDiscovery(ctx context.Context, logger *slog.Logger, name string, config 
 	d := discovery{
 		name:          name,
 		address:       fmt.Sprint(config.MemberlistConfig.BindAddr, ":", config.MemberlistConfig.BindPort),
-		logger:        logger.With("compoenent", "discovery"),
+		logger:        logger.With("compoenent", "discovery", "node_name", name),
 		events:        make(chan serf.Event, serfEventBuffer),
 		lock:          new(sync.RWMutex),
 		subscriptions: map[serf.EventType][]func(serf.Event){},
@@ -154,9 +154,10 @@ func (d *discovery) JoinNodes(addresses ...string) error {
 }
 
 func (d *discovery) Stop() error {
-	if d.done.Load() {
+	if old := d.done.Swap(true); old {
 		<-d.doneChan
 
+		d.logger.Info("already stopped")
 		if errPtr := d.doneErr.Load(); errPtr != nil {
 			return *errPtr
 		}
@@ -164,7 +165,7 @@ func (d *discovery) Stop() error {
 		return nil
 	}
 
-	d.done.Store(true)
+	d.logger.Info("discovery shutting down")
 	defer close(d.doneChan)
 
 	if err := d.serf.Leave(); err != nil {

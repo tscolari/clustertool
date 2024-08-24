@@ -186,8 +186,9 @@ func (c *consensus) Nodes() ([]raft.Server, error) {
 // It will try to transfer leadership first, if it's the leader.
 // Stop will block until all closing operations are done.
 func (c *consensus) Stop() error {
-	if c.shutdown.Load() {
+	if old := c.shutdown.Swap(true); old {
 		<-c.doneChan
+
 		c.logger.Info("already stopped")
 		if errPtr := c.doneErr.Load(); errPtr != nil {
 			return *errPtr
@@ -195,8 +196,9 @@ func (c *consensus) Stop() error {
 		return nil
 	}
 
+	c.logger.Info("consensus shutting down")
+
 	defer close(c.doneChan)
-	c.shutdown.Store(true)
 
 	if c.IsLeader() {
 		c.logger.Info("transferring leadership")
@@ -205,15 +207,17 @@ func (c *consensus) Stop() error {
 		}
 	}
 
+	defer func() {
+		if err := c.closeStores(); err != nil {
+			c.logger.Error("failed to close store", "error", err)
+		}
+	}()
+
 	c.stopInternalCtx()
 
 	if err := c.raft.Shutdown().Error(); err != nil {
 		c.doneErr.Store(&err)
 		return fmt.Errorf("failed to shutdown raft: %w", err)
-	}
-
-	if err := c.closeStores(); err != nil {
-		c.logger.Error("failed to close store", "error", err)
 	}
 
 	return nil

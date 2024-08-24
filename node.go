@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -120,6 +121,8 @@ type node struct {
 	internalCtx     context.Context
 	stopInternalCtx func()
 	doneChan        chan struct{}
+	shutdown        atomic.Bool
+	doneErr         atomic.Pointer[error]
 }
 
 func NewNode(
@@ -149,6 +152,7 @@ func NewNode(
 		stopInternalCtx: stopInternalCtx,
 		logger:          logger.With("component", "node"),
 		doneChan:        make(chan struct{}),
+		shutdown:        atomic.Bool{},
 	}
 
 	if err := n.init(ReconciliationInterval); err != nil {
@@ -233,18 +237,36 @@ func (n *node) SubscribeToEvent(queryName string, action func(*serf.Query)) {
 
 // Stop will block until all internal components are closed.
 func (n *node) Stop() error {
+	if old := n.shutdown.Swap(true); old {
+		<-n.doneChan
+
+		n.logger.Info("already stopped")
+		if errPtr := n.doneErr.Load(); errPtr != nil {
+			return *errPtr
+		}
+
+		return nil
+	}
+
+	n.logger.Info("node shutting down")
+
 	n.stopInternalCtx()
+	defer close(n.doneChan)
 
 	var errs error
 
-	if err := n.discovery.Stop(); err != nil {
-		n.logger.Error("failed to stop the discovery interface: %w", err)
+	if err := n.consensus.Stop(); err != nil {
+		n.logger.Error("failed to stop the consensus interface", "error", err)
 		errs = fmt.Errorf("%w: %w", errs, err)
 	}
 
-	if err := n.consensus.Stop(); err != nil {
-		n.logger.Error("failed to stop the consensus interface: %w", err)
+	if err := n.discovery.Stop(); err != nil {
+		n.logger.Error("failed to stop the discovery interface", "error", err)
 		errs = fmt.Errorf("%w: %w", errs, err)
+	}
+
+	if errs != nil {
+		n.doneErr.Store(&errs)
 	}
 
 	return errs
@@ -275,10 +297,9 @@ func (n *node) init(reconciliationInterval time.Duration) error {
 
 func (n *node) watchInternalCtx() {
 	<-n.internalCtx.Done()
-	_ = n.discovery.Stop()
-	_ = n.consensus.Stop()
-
-	close(n.doneChan)
+	if err := n.Stop(); err != nil {
+		n.logger.Error("failed during Stop", "error", err)
+	}
 }
 
 func (n *node) reconcileMembers(reconciliationInterval time.Duration) {
