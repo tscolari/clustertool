@@ -14,8 +14,8 @@ import (
 type App interface {
 	Apply(cmd []byte) error
 
-	SubscribeToQuery(name string, action func(*serf.Query) error) error
-	SendQuery(name string, payload []byte, params *serf.QueryParam) (EventResponse, error)
+	SubscribeToQuery(name string, action func(Query) error) error
+	SendQuery(name string, payload []byte, params *QueryParam) (EventResponse, error)
 
 	Node() Node
 }
@@ -65,7 +65,7 @@ func NewApp(ctx context.Context, logger *slog.Logger, node Node, options AppOpti
 }
 
 func (c *app) init() error {
-	c.node.SubscribeToEvent(applyRedirectQueryName, func(query *serf.Query) {
+	c.node.SubscribeToEvent(applyRedirectQueryName, func(query Query) {
 		if err := c.applyFromEvent(query); err != nil {
 			c.logger.Error("failed to process redirected apply", "error", err, "source_node", query.SourceNode())
 			return
@@ -86,7 +86,7 @@ func (c *app) Apply(cmd []byte) error {
 
 	leader := c.node.Leader()
 
-	params := serf.QueryParam{
+	params := QueryParam{
 		FilterNodes: []string{leader},
 		RequestAck:  true,
 		Timeout:     c.options.ApplyTimeout,
@@ -123,12 +123,12 @@ func (c *app) Apply(cmd []byte) error {
 }
 
 // applyFromEvent is called when the leader receives a redirected apply from a non-leader node.
-func (c *app) applyFromEvent(event *serf.Query) error {
+func (c *app) applyFromEvent(event Query) error {
 	if !c.node.IsLeader() {
 		return errors.New("can't apply because I'm not the leader")
 	}
 
-	err := c.node.Apply(event.Payload, time.Until(event.Deadline()))
+	err := c.node.Apply(event.Payload(), time.Until(event.Deadline()))
 	response := newRedirectResponse(err)
 
 	responsePayload, err := json.Marshal(&response)
@@ -145,12 +145,12 @@ func (c *app) applyFromEvent(event *serf.Query) error {
 
 // SubscribeToQuery will execute the given action every time a query with the given name
 // is received by the app's node.
-func (c *app) SubscribeToQuery(name string, action func(*serf.Query) error) error {
+func (c *app) SubscribeToQuery(name string, action func(Query) error) error {
 	if name == applyRedirectQueryName {
 		return fmt.Errorf("%q is a reserved query", applyRedirectQueryName)
 	}
 
-	c.node.SubscribeToEvent(name, func(query *serf.Query) {
+	c.node.SubscribeToEvent(name, func(query Query) {
 		if err := action(query); err != nil {
 			c.logger.Error("subscribed action failed to process query", "error", err, "source_node", query.SourceNode())
 		}
@@ -161,7 +161,7 @@ func (c *app) SubscribeToQuery(name string, action func(*serf.Query) error) erro
 
 // SendQuery will use the Node's API to send a query with the given name and payload
 // using the given params.
-func (c *app) SendQuery(name string, payload []byte, params *serf.QueryParam) (EventResponse, error) {
+func (c *app) SendQuery(name string, payload []byte, params *QueryParam) (EventResponse, error) {
 	if name == applyRedirectQueryName {
 		return nil, fmt.Errorf("%q is a reserved query", applyRedirectQueryName)
 	}

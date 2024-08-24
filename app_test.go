@@ -53,7 +53,7 @@ func TestApp_Apply(t *testing.T) {
 		cmd := []byte("hello world")
 
 		eventResponse := newTestEventResponse(t, leaderName, "{}")
-		queryParams := serf.QueryParam{
+		queryParams := QueryParam{
 			FilterNodes: []string{leaderName},
 			RequestAck:  true,
 			Timeout:     DefaultAppOptions().ApplyTimeout,
@@ -115,9 +115,9 @@ func TestApp_SubscribeToQuery(t *testing.T) {
 	app := newTestApp(t, node)
 
 	queryName := "my-query"
-	someQuery := &serf.Query{Name: uuid.NewString()}
+	someQuery := mocks.NewQuery(t)
 	actionCalled := false
-	action := func(query *serf.Query) error {
+	action := func(query Query) error {
 		actionCalled = true
 		require.Equal(t, someQuery, query)
 		return nil
@@ -125,7 +125,7 @@ func TestApp_SubscribeToQuery(t *testing.T) {
 
 	node.On("SubscribeToEvent", queryName, mock.Anything).
 		Run(func(args mock.Arguments) {
-			actionWrapper, ok := args[1].(func(*serf.Query))
+			actionWrapper, ok := args[1].(func(Query))
 			require.True(t, ok)
 			actionWrapper(someQuery)
 		})
@@ -141,7 +141,7 @@ func TestApp_SendQuery(t *testing.T) {
 
 	queryName := "my-query"
 	payload := []byte("hello")
-	params := &serf.QueryParam{FilterNodes: []string{uuid.NewString()}}
+	params := &QueryParam{FilterNodes: []string{uuid.NewString()}}
 
 	eventResponse := mocks.NewEventResponse(t)
 

@@ -99,12 +99,12 @@ func TestDiscovery_SendEvent(t *testing.T) {
 
 	queryName := "my-query"
 	queryPayload := []byte("payload")
-	queryParam := &serf.QueryParam{}
+	queryParam := &QueryParam{RequestAck: true}
 
 	queryResponse := &serf.QueryResponse{}
 
 	serfMock.
-		On("Query", queryName, queryPayload, queryParam).
+		On("Query", queryName, queryPayload, testQueryParamToSerf(queryParam)).
 		Once().
 		Return(queryResponse, nil)
 
@@ -114,7 +114,7 @@ func TestDiscovery_SendEvent(t *testing.T) {
 
 	t.Run("when serf returns an error", func(t *testing.T) {
 		serfMock.
-			On("Query", queryName, queryPayload, queryParam).
+			On("Query", queryName, queryPayload, testQueryParamToSerf(queryParam)).
 			Once().
 			Return(nil, errors.New("failed"))
 

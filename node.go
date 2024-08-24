@@ -42,7 +42,7 @@ type Discovery interface {
 	Tags() map[string]string
 
 	SubscribeToEvent(et serf.EventType, action func(serf.Event))
-	SendEvent(name string, payload []byte, params *serf.QueryParam) (*serf.QueryResponse, error)
+	SendEvent(name string, payload []byte, params *QueryParam) (*serf.QueryResponse, error)
 
 	addressable
 	stoppable
@@ -87,11 +87,11 @@ type Node interface {
 
 	// SubscribeToEvent will call the given action function every time an
 	// internal query event matching the queryName is received.
-	SubscribeToEvent(queryName string, action func(*serf.Query))
+	SubscribeToEvent(queryName string, action func(Query))
 
 	// SendEvent sends a query event to other nodes.
 	// params can be used to control the spread of the event.
-	SendEvent(name string, payload []byte, params *serf.QueryParam) (EventResponse, error)
+	SendEvent(name string, payload []byte, params *QueryParam) (EventResponse, error)
 
 	// ConnectToNode is a helper to inter-connect nodes.
 	// To join a cluster, it only needs to know about a single node.
@@ -177,7 +177,7 @@ func (n *node) Apply(cmd []byte, timeout time.Duration) error {
 	return n.consensus.Apply(cmd, timeout)
 }
 
-func (n *node) SendEvent(name string, payload []byte, params *serf.QueryParam) (EventResponse, error) {
+func (n *node) SendEvent(name string, payload []byte, params *QueryParam) (EventResponse, error) {
 	return n.discovery.SendEvent(name, payload, params)
 }
 
@@ -214,16 +214,16 @@ func (n *node) Tag(key string) (string, bool) {
 	return value, ok
 }
 
-func (n *node) SubscribeToEvent(queryName string, action func(*serf.Query)) {
+func (n *node) SubscribeToEvent(queryName string, action func(Query)) {
 	n.discovery.SubscribeToEvent(serf.EventQuery, func(e serf.Event) {
-		query, ok := e.(*serf.Query)
+		serfQuery, ok := e.(*serf.Query)
 		if !ok {
 			n.logger.Error("could not perform subscribed action on query: event is not a query")
 			return
 		}
 
-		if queryName == query.Name {
-			action(query)
+		if queryName == serfQuery.Name {
+			action(&query{serfQuery})
 		}
 	})
 }

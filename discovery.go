@@ -118,8 +118,9 @@ func (d *discovery) SubscribeToEvent(et serf.EventType, action func(serf.Event))
 	d.subscriptions[et] = actions
 }
 
-func (d *discovery) SendEvent(name string, payload []byte, params *serf.QueryParam) (*serf.QueryResponse, error) {
-	result, err := d.serf.Query(name, payload, params)
+func (d *discovery) SendEvent(name string, payload []byte, params *QueryParam) (*serf.QueryResponse, error) {
+	qp := serf.QueryParam(*params)
+	result, err := d.serf.Query(name, payload, &qp)
 	if err != nil {
 		d.logger.Error("failed to send event", "error", err)
 	}

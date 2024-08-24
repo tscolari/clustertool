@@ -75,7 +75,7 @@ func TestDiscovery(t *testing.T) {
 
 		node1.SubscribeToEvent(serf.EventQuery, eventReceivedFn)
 		node2.SubscribeToEvent(serf.EventQuery, eventReceivedFn)
-		resp, err := node3.SendEvent("test-event", []byte("payload"), &serf.QueryParam{
+		resp, err := node3.SendEvent("test-event", []byte("payload"), &clustertool.QueryParam{
 			Timeout: 10 * time.Second,
 		})
 		require.NoError(t, err)
