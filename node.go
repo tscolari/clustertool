@@ -271,6 +271,11 @@ func (n *node) Done() <-chan struct{} {
 
 func (n *node) init(reconciliationInterval time.Duration) error {
 	tags := n.discovery.Tags()
+
+	if tags == nil {
+		tags = make(map[string]string, 1)
+	}
+
 	tags[raftAddrTag] = n.consensus.Address()
 	if err := n.discovery.SetTags(tags); err != nil {
 		return fmt.Errorf("failed to set %s tag to discovery node", raftAddrTag)
