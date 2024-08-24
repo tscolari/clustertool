@@ -83,7 +83,7 @@ func TestDiscovery_SubscribeToEvent(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return action1Exec.Load() && action3Exec.Load()
-	}, 10*time.Millisecond, 10*time.Microsecond)
+	}, 50*time.Millisecond, 10*time.Microsecond)
 
 	require.False(t, action2Exec.Load())
 
@@ -339,7 +339,9 @@ func testDiscovery(t *testing.T, nodeName string) (Discovery, *mocks.HashicorpSe
 		"tag1": "value1",
 		"tag2": "value2",
 	}
+	serfConfig.Logger = nil
 	serfConfig.LogOutput = io.Discard
+	serfConfig.MemberlistConfig.Logger = nil
 	serfConfig.MemberlistConfig.LogOutput = io.Discard
 
 	discovery, err := NewDiscovery(

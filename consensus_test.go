@@ -3,6 +3,7 @@ package clustertool_test
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path"
@@ -25,8 +26,7 @@ func TestConsensus_Name(t *testing.T) {
 
 func TestConsensus_Address(t *testing.T) {
 	consensus, _, _ := testConsensus(t, "name-1")
-	// Address from default configuraiton
-	require.Equal(t, "127.0.0.1:9001", consensus.Address())
+	require.Equal(t, "127.0.0.1:7001", consensus.Address())
 }
 
 func TestConsensus_Apply(t *testing.T) {
@@ -325,7 +325,10 @@ func TestConsensus_Stop(t *testing.T) {
 func testConsensus(t *testing.T, name string) (Consensus, *mocks.HashicorpRaft, chan<- bool) {
 	fsm := mocks.NewFSM(t)
 	config := DefaultConsensusConfig()
+	config.Addr = "127.0.0.1:7001"
 	config.DataDir = path.Join(os.TempDir(), uuid.NewString())
+	config.Raft.Logger = nil
+	config.Raft.LogOutput = io.Discard
 
 	consensus, err := NewConsensus(
 		context.Background(),

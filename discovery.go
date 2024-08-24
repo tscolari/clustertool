@@ -201,13 +201,15 @@ func (d *discovery) serfEventHandler(ctx context.Context) {
 				d.memberLeft(e.(serf.MemberEvent))
 			}
 
-			d.lock.RLock()
-			actions := d.subscriptions[e.EventType()]
-			d.lock.RUnlock()
+			func() {
+				d.lock.RLock()
+				defer d.lock.RUnlock()
 
-			for _, action := range actions {
-				action(e)
-			}
+				actions := d.subscriptions[e.EventType()]
+				for _, action := range actions {
+					action(e)
+				}
+			}()
 		}
 	}
 }
