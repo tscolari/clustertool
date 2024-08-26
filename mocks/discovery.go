@@ -33,19 +33,19 @@ func (_m *Discovery) Address() string {
 }
 
 // ConnectedNodes provides a mock function with given fields:
-func (_m *Discovery) ConnectedNodes() []serf.Member {
+func (_m *Discovery) ConnectedNodes() []clustertool.DiscoveryMember {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for ConnectedNodes")
 	}
 
-	var r0 []serf.Member
-	if rf, ok := ret.Get(0).(func() []serf.Member); ok {
+	var r0 []clustertool.DiscoveryMember
+	if rf, ok := ret.Get(0).(func() []clustertool.DiscoveryMember); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]serf.Member)
+			r0 = ret.Get(0).([]clustertool.DiscoveryMember)
 		}
 	}
 

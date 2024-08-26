@@ -21,8 +21,6 @@ var (
 	ReconciliationInterval = defaultReconciliationInterval
 )
 
-type NodeStatus = serf.MemberStatus
-
 type stoppable interface {
 	Stop() error
 	Done() <-chan struct{}
@@ -34,7 +32,7 @@ type addressable interface {
 }
 
 type Discovery interface {
-	ConnectedNodes() []serf.Member
+	ConnectedNodes() []DiscoveryMember
 	JoinNodes(nodes ...string) error
 	KeyManager() *serf.KeyManager
 
@@ -66,7 +64,7 @@ type Consensus interface {
 type NodeInfo struct {
 	Name   string
 	Tags   map[string]string
-	Status NodeStatus
+	Status DiscoveryMemberStatus
 }
 
 // Node contains the behaviour that a Node must present.
@@ -341,14 +339,14 @@ func (n *node) reconcileMembers(reconciliationInterval time.Duration) {
 					}
 
 				default:
-					if err := n.removeMember(member); err != nil {
+					if err := n.removeMember(member.Name); err != nil {
 						n.logger.Error("failed to try removing member during reconciliation", "error", err)
 					}
 				}
 			}
 
 			for id := range nodesMap {
-				if err := n.removeMember(serf.Member{Name: id}); err != nil {
+				if err := n.removeMember(id); err != nil {
 					n.logger.Error("failed to remove stale consensus node during reconciliation", "error", err)
 				}
 			}
@@ -375,7 +373,7 @@ func (n *node) memberWelcomeEvent(e serf.Event) {
 		}
 
 		for _, member := range memberEvent.Members {
-			if err := n.addMember(member); err != nil {
+			if err := n.addMember(discoveryMemberFromSerf(member)); err != nil {
 				n.logger.Error("could not add member", "member_name", member.Name)
 			}
 		}
@@ -402,7 +400,7 @@ func (n *node) memberGoneEvent(e serf.Event) {
 		}
 
 		for _, member := range memberEvent.Members {
-			if err := n.removeMember(member); err != nil {
+			if err := n.removeMember(member.Name); err != nil {
 				n.logger.Error("could not remove member", "member_name", member.Name)
 			}
 		}
@@ -416,13 +414,13 @@ func (n *node) memberGoneEvent(e serf.Event) {
 		}
 
 		for _, member := range memberEvent.Members {
-			if err := n.demoteMember(member); err != nil {
+			if err := n.demoteMember(discoveryMemberFromSerf(member)); err != nil {
 				n.logger.Error("could not demote member", "member_name", member.Name)
 			}
 		}
 	}
 }
-func (n *node) addMember(member serf.Member) error {
+func (n *node) addMember(member DiscoveryMember) error {
 	raftAddr, ok := member.Tags[raftAddrTag]
 	if !ok {
 		return errors.New("no raft_addr in member's tags")
@@ -435,7 +433,7 @@ func (n *node) addMember(member serf.Member) error {
 	return nil
 }
 
-func (n *node) demoteMember(member serf.Member) error {
+func (n *node) demoteMember(member DiscoveryMember) error {
 	raftAddr, ok := member.Tags[raftAddrTag]
 	if !ok {
 		return errors.New("no raft_addr in member's tags")
@@ -448,8 +446,8 @@ func (n *node) demoteMember(member serf.Member) error {
 	return nil
 }
 
-func (n *node) removeMember(member serf.Member) error {
-	if err := n.consensus.RemoveNode(member.Name); err != nil {
+func (n *node) removeMember(memberName string) error {
+	if err := n.consensus.RemoveNode(memberName); err != nil {
 		return fmt.Errorf("failed to remove member: %w", err)
 	}
 

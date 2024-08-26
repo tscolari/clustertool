@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,7 +17,9 @@ const (
 	serfEventBuffer = 1024
 )
 
-// hcSerf is an interface that exposes the methods used by discovery
+type DiscoveryMemberStatus = serf.MemberStatus
+
+// HashicorpSerf is an interface that exposes the methods used by discovery
 // from serf.Serf.
 type HashicorpSerf interface {
 	KeyManager() *serf.KeyManager
@@ -26,6 +29,24 @@ type HashicorpSerf interface {
 	Leave() error
 	Shutdown() error
 	Join(addresses []string, ignoreOld bool) (int, error)
+}
+
+type DiscoveryMember struct {
+	Name   string
+	Addr   net.IP
+	Port   uint16
+	Tags   map[string]string
+	Status DiscoveryMemberStatus
+}
+
+func discoveryMemberFromSerf(m serf.Member) DiscoveryMember {
+	return DiscoveryMember{
+		Name:   m.Name,
+		Addr:   m.Addr,
+		Port:   m.Port,
+		Tags:   m.Tags,
+		Status: m.Status,
+	}
 }
 
 func NewDiscovery(ctx context.Context, logger *slog.Logger, name string, config *serf.Config) (*discovery, error) {
@@ -85,13 +106,13 @@ func (d *discovery) KeyManager() *serf.KeyManager {
 	return d.serf.KeyManager()
 }
 
-func (d *discovery) ConnectedNodes() []serf.Member {
+func (d *discovery) ConnectedNodes() []DiscoveryMember {
 	allMembers := d.serf.Members()
-	members := make([]serf.Member, 0, len(allMembers))
+	members := make([]DiscoveryMember, 0, len(allMembers))
 	for _, member := range allMembers {
 		// Consider nodes that are still considered part of the cluster, even though they are about to go or failing.
 		if member.Status == serf.StatusAlive || member.Status == serf.StatusFailed || member.Status == serf.StatusLeaving {
-			members = append(members, member)
+			members = append(members, discoveryMemberFromSerf(member))
 		}
 	}
 

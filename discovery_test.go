@@ -45,8 +45,11 @@ func TestDiscovery_ConnectedNodes(t *testing.T) {
 		Once().
 		Return(members)
 
-	expectedMembers := []serf.Member{
-		members[0], members[3], members[4], members[5],
+	expectedMembers := []DiscoveryMember{
+		{Name: "0", Status: serf.StatusAlive},
+		{Name: "3", Status: serf.StatusFailed},
+		{Name: "4", Status: serf.StatusLeaving},
+		{Name: "5", Status: serf.StatusAlive},
 	}
 
 	require.Equal(t, expectedMembers, discovery.ConnectedNodes())

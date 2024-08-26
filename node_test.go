@@ -150,7 +150,7 @@ func TestNode_Cluster(t *testing.T) {
 		node.Stop()
 	})
 
-	members := []serf.Member{
+	members := []DiscoveryMember{
 		{
 			Name:   "node-1",
 			Tags:   map[string]string{"tag": "hello"},
@@ -271,7 +271,7 @@ func TestNode_Reconciliation(t *testing.T) {
 
 	consensus.On("Nodes").Return(consensusNodes, nil)
 
-	discoveryNodes := []serf.Member{
+	discoveryNodes := []DiscoveryMember{
 		{Name: "node-1", Status: serf.StatusAlive, Tags: map[string]string{"raft_addr": "0.0.0.0:1"}},
 		{Name: "node-2", Status: serf.StatusFailed, Tags: map[string]string{"raft_addr": "0.0.0.0:2"}},
 		{Name: "node-4", Status: serf.StatusAlive, Tags: map[string]string{"raft_addr": "0.0.0.0:4"}},
