@@ -17,7 +17,11 @@ type App interface {
 	SubscribeToQuery(name string, action func(Query) error) error
 	SendQuery(name string, payload []byte, params *QueryParam) (EventResponse, error)
 
+	ConnectToNode(addresses ...string) error
+
 	Node() Node
+
+	stoppable
 }
 
 type EventResponse interface {
@@ -169,10 +173,22 @@ func (c *app) SendQuery(name string, payload []byte, params *QueryParam) (EventR
 	return c.node.SendEvent(name, payload, params)
 }
 
+func (c *app) ConnectToNode(addresses ...string) error {
+	return c.node.ConnectToNode(addresses...)
+}
+
 // Node returns the wrapped Node implementation to expose more
 // low level commands.
 func (c *app) Node() Node {
 	return c.node
+}
+
+func (c *app) Stop() error {
+	return c.node.Stop()
+}
+
+func (c *app) Done() <-chan struct{} {
+	return c.node.Done()
 }
 
 func newRedirectResponse(err error) redirectResponse {
